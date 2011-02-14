@@ -331,12 +331,23 @@ vector<int> Detector::getFeaturePatches(const vector<GS>& gray, int W, int H) co
     Detector::initOctave(o[i], W, H);
   double area_squared = 9.*9.*9.*9.;
 
-  int areas[4][4] = {{9,15,21,27},{15,27,39,51},{27,51,75,99},{51,99,147,195}};
+  int areas[16] = {9,15,21,27,15,27,39,51,27,51,75,99,51,99,147,195};
   __gnu_cxx::hash_map<int, pair<int,int> > displs;
 
   displs[9] = make_pair(0,0);
   displs[15] = make_pair(1,2);
-  displs[21] = make_pair(0,0);
+  displs[21] = make_pair(2,4);
+  displs[27] = make_pair(3,6);
+  //filter size increase doubles
+  displs[39] = make_pair(5,10);
+  displs[51] = make_pair(7,14);
+  //doubles again
+  displs[75] = make_pair(11,22);
+  displs[99] = make_pair(15,30);
+  //doubles
+  displs[147] = make_pair(23,46);
+  displs[195] = make_pair(31,62);
+
 
   for(int i=0;i<H;i++)
     {
@@ -346,12 +357,24 @@ vector<int> Detector::getFeaturePatches(const vector<GS>& gray, int W, int H) co
 
   	  if(i >= HALF && i < (H - HALF) && j >=HALF && j < (W - HALF))
 	    {
-	      double dyy = (double)Detector::calcDxx(integral, i, j, 0, 0);
-	      double dxy = (double)Detector::calcDxy(integral, i, j, 0, 0);
-	      double dxx = (double)Detector::calcDxx(integral, i, j, 0, 0);
-	      //filtered[i][j] = dyy;
+	      int count1 = 0;
+	      int count2 = 0;
+	      for(int k=0;k<16;k++)
+		{
+		  area_squared = areas[k]*areas[k];
+		  int sy = displs[areas[k]].first;
+		  int sx = displs[areas[k]].second;
 
-	      o[0].responseMap[0][i][j] = (dxx*dyy - 0.81*dxy*dxy) / (area_squared);	      
+		  if(k%3) { count1++; count2 = 0;}
+		  
+		  double dyy = (double)Detector::calcDxx(integral, i, j, sx, sy);
+		  double dxy = (double)Detector::calcDxy(integral, i, j, sy, sy);
+		  double dxx = (double)Detector::calcDxx(integral, i, j, sy, sx);
+		  //filtered[i][j] = dyy;
+
+		  o[count1].responseMap[count2][i][j] = (dxx*dyy - 0.81*dxy*dxy) / (area_squared);
+		  count2++;
+		}
 	    }
 	}
 
