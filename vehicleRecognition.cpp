@@ -51,6 +51,13 @@ public:
   static vector<GS> grayScaleItGamma(const vector<P>& color);
 };
 
+class MathUtils
+{
+public:
+  static double det3x3(const vector<vector<double> >& mat);
+  static void adjugate3x3(const vector<vector<double> >& mat, vector<vector<double> >& out);
+  static void inverse3x3(const vector<vector<double> >& mat, vector<vector<double> >& out);
+};
 //find patches of interest (features)
 class Detector
 {
@@ -59,6 +66,9 @@ public:
   static int calcDyy(const vector<vector<long> >& img, int i, int j, int sx, int sy);
   static int calcDxy(const vector<vector<long> >& img, int i, int j, int sx, int sy);
   static int calcDxx(const vector<vector<long> >& img, int i, int j, int sx, int sy);
+
+  static bool isLocalMax(const Octave& o, int max, unsigned int i, unsigned int j, unsigned int l);
+  static bool interpolateMax(const Octave& o, int max, unsigned int i, unsigned int j, unsigned int l);
 
   //just a fancy stack of scales
   struct Octave
@@ -85,6 +95,48 @@ class BoW
 public:
 
 };
+
+inline double MathUtils::det3x3(const vector<vector<double> >& mat)
+{
+  double m1 = mat[0][0]*(mat[1][1]*mat[2][2] - mat[2][1]*mat[1][2]);
+  double m2 = -mat[0][1]*(mat[1][0]*mat[2][2] - mat[2][0]*mat[1][2]);
+  double m3 = mat[0][2]*(mat[1][0]*mat[2][1] - mat[2][0]*mat[1][1]);
+
+  return m1+m2+m3;
+}
+
+inline void MathUtils::adjugate3x3(const vector<vector<double> >& mat, vector<vector<double> >& out)
+{
+  //minora coefficients of mat transposed 
+  //with {+ - +} {- + -} {+ - +} applied
+  out[0][0] = mat[1][1]*mat[2][2] - mat[1][2]*mat[2][1];
+  out[0][1] = mat[0][2]*mat[2][1] - mat[0][1]*mat[2][2];
+  out[0][2] = mat[0][1]*mat[1][2] - mat[0][2]*mat[1][1];
+
+  out[1][0] = mat[1][2]*mat[2][0] - mat[1][0]*mat[2][2];
+  out[1][1] = mat[0][0]*mat[2][2] - mat[0][2]*mat[2][0];
+  out[1][2] = mat[0][2]*mat[1][0] - mat[0][0]*mat[1][2];
+
+  out[2][0] = mat[1][0]*mat[2][1] - mat[1][1]*mat[2][0];
+  out[2][1] = mat[0][1]*mat[2][0] - mat[0][0]*mat[2][1];
+  out[2][2] = mat[0][0]*mat[1][1] - mat[1][0]*mat[0][1];
+}
+
+inline void MathUtils::inverse(const vector<vector<double> >& mat, vector<vector<double> >& out)
+{
+  double fac = 1.0 / MathUtils::det3x3(mat);
+
+  MathUtils::adjugate3x3(mat, out);
+
+  for(unsigned int i=0;i<mat.size();i++)
+    {
+      for(unsigned int j=0;j<mat.size();j++)
+	{
+	  out[i][j] *= fac;
+	}
+    }
+
+}
 
 inline void Detector::initOctave(Octave& o, int W, int H)
 {
@@ -210,6 +262,65 @@ inline int Detector::calcDxy(const vector<vector<long> >& img, int i, int j, int
   return sum;
 }
 
+bool Detector::interpolateMax(const Octave& o, int max, unsigned int i, unsigned int j, unsigned int l)
+{
+  double ds;
+  double dx;
+  double dy;
+
+  double dxx;
+  double dxy;
+  double dxs;
+  double dys;
+  double dss;
+  double dyy;
+
+  vector<vector<double> >hessian;
+  hessian.push_back(vector<double>(3));
+  hessian.push_back(vector<double>(3));
+  hessian.push_back(vector<double>(3));
+
+  hessian[0][0] = dxx;
+  hessian[0][1] = dxy;
+  hessian[0][2] = dxs;
+
+  hessian[1][0] = dxy;
+  hessian[1][1] = dyy;
+  hessian[1][2] = dys;
+
+  hessian[2][0] = dxs;
+  hessian[2][1] = dys;
+  hessian[2][2] = dss;
+
+  vector<vector<double> >iHess;
+  iHess.push_back(vector<double>(3));
+  iHess.push_back(vector<double>(3));
+  iHess.push_back(vector<double>(3));
+  MathUtils::inverse3x3(hessian, iHess);
+  
+  double xopt = -1*(iHess[0][0]*dx + iHess[0][1]*dy + iHess[0][2]*ds);
+  double yopt = -1*(iHess[1][0]*dx + iHess[1][1]*dy + iHess[1][2]*ds);
+  double sopt = -1*(iHess[2][0]*dx + iHess[2][1]*dy + iHess[2][2]*ds);
+}
+
+bool Detector::isLocalMax(const Octave& o, int max, unsigned int i, unsigned int j, unsigned int l)
+{
+  for(unsigned int m=-1;m<=1;m++)
+    {
+      for(unsigned int n=-1;n<=1;n++)
+	{
+	  for(unsigned int o=-1;o<=1;o++)
+	    {
+	      double val = o[k].responseMap[l+m][i+n][j+o];
+	      if(val > max)
+		{				  
+		  return false;
+		}
+	    } 
+	}
+    }
+  return true;
+}
 
 vector<int> Detector::getFeaturePatches(const vector<GS>& gray, int W, int H) const
 {
@@ -218,7 +329,7 @@ vector<int> Detector::getFeaturePatches(const vector<GS>& gray, int W, int H) co
 
   cout << H << " " << H << endl;
 
-  for(int i=0;i<H;i++)
+  for(unsigned int i=0;i<H;i++)
     {
       vector<int> v;
       vector<long> i;
@@ -231,13 +342,13 @@ vector<int> Detector::getFeaturePatches(const vector<GS>& gray, int W, int H) co
       integral.push_back(i);
     }
 
-  for(int i=0;i<gray.size();i++)
+  for(unsigned int i=0;i<gray.size();i++)
     {
       grayImg[gray[i].row][gray[i].col] = gray[i].intensity;
     }
 
-   for(int i=0;i<H;i++)
-    for(int j=0;j<W;j++)
+   for(unsigned int i=0;i<H;i++)
+    for(unsigned int j=0;j<W;j++)
       {
 	if(i == 0 && j == 0)
 	  integral[i][j] = grayImg[i][j];
@@ -303,35 +414,35 @@ vector<int> Detector::getFeaturePatches(const vector<GS>& gray, int W, int H) co
    con = 1.0;
    int sobel[3][3] = {{-1,-2,-1},{0,0,0},{1,2,1}};
 
-  int filtered[H][W];
-  int filtered2[H][W];
+  // int filtered[H][W];
+  // int filtered2[H][W];
 
   //filter
   
-  for(int i=0;i<H;i++)
-    {
-      for(int j=0;j<W;j++)
-  	{
-  	  filtered2[i][j] = 0;
+  // for(unsigned int i=0;i<H;i++)
+  //   {
+  //     for(unsigned int j=0;j<W;j++)
+  // 	{
+  // 	  filtered2[i][j] = 0;
 
-  	  if(i >= HALF && i < (H - HALF) && j >=HALF && j < (W - HALF))
-  	    {
-  	      for(int k=0; k < SIZE;k++)
-  		for(int l=0; l < SIZE; l++)
-  		  {
-  		    filtered2[i][j] += Dxx_9x9[k][l] * grayImg[i + k - HALF][j + l - HALF];
-  		  }
-  	      filtered2[i][j] *= con;
-  	    }
-  	}
-    }
+  // 	  if(i >= HALF && i < (H - HALF) && j >=HALF && j < (W - HALF))
+  // 	    {
+  // 	      for(unsigned int k=0; k < SIZE;k++)
+  // 		for(unsigned int l=0; l < SIZE; l++)
+  // 		  {
+  // 		    filtered2[i][j] += Dxx_9x9[k][l] * grayImg[i + k - HALF][j + l - HALF];
+  // 		  }
+  // 	      filtered2[i][j] *= con;
+  // 	    }
+  // 	}
+  //   }
 
   Detector::Octave o[4];
   for(int i=0;i<4;i++)
     Detector::initOctave(o[i], W, H);
   double area_squared = 9.*9.*9.*9.;
 
-  int areas[16] = {9,15,21,27,15,27,39,51,27,51,75,99,51,99,147,195};
+  int areas[4][4] = {{9,15,21,27},{15,27,39,51},{27,51,75,99},{51,99,147,195}};
   __gnu_cxx::hash_map<int, pair<int,int> > displs;
 
   displs[9] = make_pair(0,0);
@@ -349,35 +460,61 @@ vector<int> Detector::getFeaturePatches(const vector<GS>& gray, int W, int H) co
   displs[195] = make_pair(31,62);
 
 
-  for(int i=0;i<H;i++)
+  for(unsigned int i=0;i<H;i++)
     {
-      for(int j=0;j<W;j++)
+      for(unsigned int j=0;j<W;j++)
 	{
-	  filtered[i][j] = 0;
-
   	  if(i >= HALF && i < (H - HALF) && j >=HALF && j < (W - HALF))
 	    {
-	      int count1 = 0;
-	      int count2 = 0;
-	      for(int k=0;k<16;k++)
+	      for(unsigned int k=0;k<4;k++)
 		{
-		  area_squared = areas[k]*areas[k];
-		  int sy = displs[areas[k]].first;
-		  int sx = displs[areas[k]].second;
+		  for(unsigned int l=0;l<4;l++)
+		    {
+		      int area = areas[k][l];
+		      area_squared = area*area;
+		      int sy = displs[area].first;
+		      int sx = displs[area].second;
+		      
+		      double dyy = (double)Detector::calcDxx(integral, i, j, sx, sy);
+		      double dxy = (double)Detector::calcDxy(integral, i, j, sy, sy);
+		      double dxx = (double)Detector::calcDxx(integral, i, j, sy, sx);
+		      //filtered[i][j] = dyy;
 
-		  if(k%3) { count1++; count2 = 0;}
-		  
-		  double dyy = (double)Detector::calcDxx(integral, i, j, sx, sy);
-		  double dxy = (double)Detector::calcDxy(integral, i, j, sy, sy);
-		  double dxx = (double)Detector::calcDxx(integral, i, j, sy, sx);
-		  //filtered[i][j] = dyy;
-
-		  o[count1].responseMap[count2][i][j] = (dxx*dyy - 0.81*dxy*dxy) / (area_squared);
-		  count2++;
+		      double resp = (dxx*dyy - 0.81*dxy*dxy) / (area_squared);
+		      if(resp > threshold)
+			{
+			  o[k].responseMap[l][i][j] = resp;
+			}
+		      else
+			{
+			  o[k].responseMap[l][i][j] = 0.0;
+			}
+		    }
 		}
 	    }
 	}
 
+    }
+
+  
+  //non-maximum suppression
+  for(unsigned int i=0;i<H;i++)
+    {
+      for(unsigned int j=0;j<W;j++)
+	{
+  	  for(unsigned int k=0;k<4;k++)
+	    {
+	      for(unsigned int l=1;l<2;l++)
+		{
+		  double max = o[k].responseMap[l][i][j];
+		  
+		  if(Detector::isLocalMax(o[k], max, i, j, l))
+		    {
+		      interpolateMax(o[k], i, j, l);
+		    } 
+		}
+	    }
+	}
     }
   
   // IplImage *grayImg2 = cvCreateImage(cvSize(W,H),IPL_DEPTH_8U,1);
