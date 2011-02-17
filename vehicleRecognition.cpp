@@ -7,6 +7,10 @@
 #include "cv.h"
 #include "highgui.h"
 #include <ctime>
+#include <cstdlib>
+#include <limits>
+
+#define PI 3.14519265
 
 using namespace std;
 
@@ -80,7 +84,7 @@ public:
     OctaveLayer layer[3];
   };
 
-  vector<IPoint> getFeaturePatches(const vector<GS>& gray, int W, int H, double threshold) const;
+  vector<IPoint> getFeaturePatches(const vector<vector<long> >& integral, int W, int H, double threshold) const;
   static long calcDyy(const vector<vector<long> >& img, int i, int j, int sx, int sy);
   static long calcDxy(const vector<vector<long> >& img, int i, int j, int sx, int sy);
   static long calcDxx(const vector<vector<long> >& img, int i, int j, int sx, int sy);
@@ -99,16 +103,130 @@ public:
 class Descriptor
 {
 public:
-  calcHaarResponse(const vector<IPoint>& ipoints)
+   //2D gaussian of two independant variables x y who both have var = sigma
+   //and mean  = 0 
+   //cov matrix is therefore [1/sigma, 0; 0 1/sigma] and D = 2
+   //therefore we get
+  static double gaussian(double x, double y, double sigma)
   {
-    
-    for(int x = -6*s; x<=6*s; x+=s)
-      {
-	for(int y = -6*s; y<=6*s; y+=s)
-	  {
+    return (1.0 / (2.0*PI*sigma*sigma)) * exp( -(x*x + y*y) / (2.0*sigma*sigma));        
+  }      
+   
+  static vector<double> getDescriptor(const IPoint& p, const vector<vector<long> >& integralImage);
 
+  static double haarX(int x, int y, int width, const vector<vector<long> >& integralImage)
+  {
+     int imgHeight = integralImage.size() - 1;    
+     int imgWidth = integralImage[0].size() - 1;
+     
+     int l_x = max(0, x - width/2 - 1);
+     int r_x = min(imgWidth, x + width/2);
+     int u_y = max(0, y - width/2 - 1);
+     int b_y = min(imgHeight, y + width/2);
+     int m_y = min(max(0, y-1), imgHeight);
+     
+     //cout << l_x << " " << r_x << " " << u_y << " " << b_y << " " << m_y << " " << imgHeight << " " << imgWidth << endl;
 
+     long sum = 0;
+     sum += integralImage[b_y][r_x] + integralImage[u_y][r_x] + 2*integralImage[m_y][l_x];
+     sum += -2*integralImage[m_y][r_x] - integralImage[b_y][l_x] - integralImage[u_y][l_x];
+     
+     return sum;
+  }
+  
+  static double haarY(int x, int y, int width, const vector<vector<long> >& integralImage)
+  {
+     int imgHeight = integralImage.size() - 1;
+     int imgWidth = integralImage[0].size() - 1;
+     
+     int l_x = max(0, x - width/2 - 1);
+     int r_x = min(imgWidth, x + width/2);
+     int u_y = max(0, y - width/2 - 1);
+     int b_y = min(imgHeight, y + width/2);
+     int m_x = min(max(0, x-1),imgWidth);
+   
+     //cout << l_x << " " << r_x << " " << u_y << " " << b_y << " " << m_x << " " << imgHeight << " " << imgWidth << endl;
+     
+     long sum = 0;
+     sum += integralImage[b_y][r_x] - integralImage[u_y][r_x] - 2*integralImage[b_y][m_x];
+     sum += 2*integralImage[u_y][m_x] + integralImage[b_y][l_x] - integralImage[u_y][l_x];
+     
+     return sum;
+  }
 };
+
+vector<double> Descriptor::getDescriptor(const IPoint& p, const vector<vector<long> >& integralImage)
+{
+  double x_c = p.x;
+  double y_c = p.y;
+  double s = p.s;
+  double iHeight = static_cast<double>(integralImage.size()) - 1;
+  double iWidth = static_cast<double>(integralImage[0].size()) - 1;
+
+  int window_lx = static_cast<int>( floor(max(x_c - 20*s, 0.0)) );
+  int window_rx = static_cast<int>( ceil(min(x_c + 20*s, iWidth)) );
+  int window_uy = static_cast<int>( floor(max(y_c - 20*s, 0.0)) );
+  int window_by = static_cast<int>( ceil(min(y_c + 20*s, iHeight)) );
+
+  int step = static_cast<int>( round(5*s) );
+  //25 in each subregion
+
+  vector<double> descriptor;
+
+  //cout << " hmm " <<  window_uy << " " << window_by << " " << window_lx << " " << window_rx << endl;
+  
+  for(int i=window_uy; i < window_by; i+=step)
+    {
+      for(int j=window_lx; j < window_rx; j+=step)
+	{
+	  double vector_dx = 0;
+	  double vector_dy = 0;
+	  double vector_abs_dx = 0;
+	  double vector_abs_dy = 0;
+	  bool showStuff = false;
+
+	  for(int start_y = i; start_y < i + s; start_y+=s)
+	    {
+	      for(int start_x = j; start_x < j + s; start_x+=s)
+		{
+		  //3.3 sigma gaussian centered at Ipoint
+		  double blur = Descriptor::gaussian(start_x - x_c, 
+						     start_y - y_c,
+						     3.3*s);
+		  
+		  double waveResp = blur * Descriptor::haarX(start_x, 
+							    start_y,
+							    2*s,
+							    integralImage);
+		  
+		  vector_dx += waveResp;
+		  vector_abs_dx += abs(waveResp);
+
+		  waveResp = blur * Descriptor::haarY(start_x, 
+						     start_y,
+						     2*s,
+						     integralImage);
+		  vector_dy += waveResp;
+		  vector_abs_dy += abs(waveResp);
+		}
+	      
+	    }
+	  //normalize the vector to make it contrast invariant
+	  double norm = vector_dx*vector_dx + vector_dy*vector_dy;
+	  norm += vector_abs_dx*vector_abs_dx + vector_abs_dy*vector_abs_dy;
+	  norm = sqrt(norm);
+
+	  descriptor.push_back(vector_dx / norm);
+	  descriptor.push_back(vector_dy / norm);
+	  descriptor.push_back(vector_abs_dx / norm);
+	  descriptor.push_back(vector_abs_dy / norm);
+	}
+    }
+
+  //the order in the descriptor vector 
+  //will be unique since it will always be from left to right top to bottom
+  return descriptor;
+}
 
 //bag of words representation of an image
 //similar features are summarized
@@ -117,8 +235,65 @@ public:
 class BoW
 {
 public:
-
+  static void kmeans(int K, const vector<vector<double> >&data, vector<vector<double> >kcenters);
+  static double euclidDist(const vector<double>& v1, const vector<double>& v2)
+  {
+    double sum = 0;
+    for(int i=0;i<v1.size();i++)
+      {
+	sum += v1[i]*v1[i] - v2[i]*v2[i];
+      }
+    
+    return sqrt(sum);
+  }
 };
+
+void BoW::kmeans(int K, const vector<vector<double> >&data, vector<vector<double> >kcenters)
+{
+  srand(time(NULL));
+
+  for(int i=0; i<kcenters.size(); i++)
+    {
+        for(int j=0; j<kcenters[i].size(); j++)
+	  {
+	    int random = rand() % 10000;
+	    kcenters[i][j] = static_cast<double>(random) / 10000.0;
+	  }
+    }
+
+  int MAXITER = 10000;
+  double maxMove = numeric_limits<double>::min();
+  int codebook[data.size()];
+  for(int i=0;i<data.size();i++)
+    codebook[i] = 0;
+
+  //do
+  //{
+
+      for(int k=0;k<data.size();k++)
+	{
+	  double maxDist = numeric_limits<double>::min();
+	  for(int i=0;i<kcenters.size();i++)
+	    {
+	      double dist = BoW::euclidDist(data[k], kcenters[k]);
+	      if(dist > maxDist)
+		{
+		  codebook[k] = i;
+		  maxDist = dist;		  
+		}
+	    }
+	}
+      // for(int i=0;i<data.size();i++)
+      // 	{
+      // 	  for(int j=0; j
+      // 	  kcenters[codebook[i]]
+      // 	}
+
+	  
+
+      
+
+}
 
 inline double MathUtils::det3x3(const vector<vector<double> >& mat)
 {
@@ -360,6 +535,8 @@ IPoint Detector::interpolateMax(const Octave& o, const IPoint& max, unsigned int
 bool Detector::isLocalMax(const Octave& o, int max, unsigned int i, 
 			  unsigned int j, unsigned int k, unsigned int l)
 {
+  cout << " hoho " << endl;
+
   if(max == 0)
     return false;
   for(unsigned int m=-1;m<=1;m++)
@@ -379,50 +556,9 @@ bool Detector::isLocalMax(const Octave& o, int max, unsigned int i,
   return true;
 }
 
-vector<IPoint> Detector::getFeaturePatches(const vector<GS>& gray, int W, int H, double threshold) const
+vector<IPoint> Detector::getFeaturePatches(const vector<vector<long> >& integral, 
+					   int W, int H, double threshold) const
 {
-  vector<vector<long> > integral;
-  vector<vector<int> > grayImg;
-
-  cout << H << " " << W << endl;
-
-  for(unsigned int i=0;i<H;i++)
-    {
-      vector<int> v;
-      vector<long> i;
-      for(int j=0;j<W;j++)
-	{
-	  v.push_back(0);
-	  i.push_back(0L);
-	}
-      grayImg.push_back(v);
-      integral.push_back(i);
-    }
-
-  for(unsigned int i=0;i<gray.size();i++)
-    {
-      grayImg[gray[i].row][gray[i].col] = gray[i].intensity;
-    }
-
-   for(unsigned int i=0;i<H;i++)
-    for(unsigned int j=0;j<W;j++)
-      {
-	if(i == 0 && j == 0)
-	  integral[i][j] = grayImg[i][j];
-	else if(i == 0)
-	  integral[i][j] = grayImg[i][j] + integral[i][j-1];
-	else if(j == 0)
-	  integral[i][j] = grayImg[i][j] + integral[i-1][j];
-	else
-	  {
-	    integral[i][j] = grayImg[i][j];
-	    integral[i][j] += integral[i-1][j];
-	    integral[i][j] += integral[i][j-1];
-	    integral[i][j] -= integral[i-1][j-1];
-	  }
-      }
-
-
   Detector::Octave o[4];
   for(int i=0;i<4;i++)
     Detector::initOctave(o[i], W, H);
@@ -458,16 +594,16 @@ vector<IPoint> Detector::getFeaturePatches(const vector<GS>& gray, int W, int H,
 
 		      double resp = (dxx*dyy - 0.81*dxy*dxy) / (area_squared);
 		      
-		      if(resp > threshold)
-			{
-			  cout << threshold << " " << resp << endl;
-			  cout << i  << " " << j << " " << o[k].layer[l].scale << endl;
+		      // if(resp > threshold)
+		      // 	{
+		      // 	  //cout << threshold << " " << resp << endl;
+		      // 	  //cout << i  << " " << j << " " << o[k].layer[l].scale << endl;
+		      // 	  o[k].layer[l].responseMap[i][j] = resp;
+		      // 	}
+		      // else
+		      // 	{
 			  o[k].layer[l].responseMap[i][j] = resp;
-			}
-		      else
-			{
-			  o[k].layer[l].responseMap[i][j] = 0.0;
-			}
+			  //	}
 		    }
 		}
 	    }
@@ -509,23 +645,26 @@ vector<IPoint> Detector::getFeaturePatches(const vector<GS>& gray, int W, int H,
 		{
 		  double max = o[k].layer[l].responseMap[i][j];
 		  
-		  if(Detector::isLocalMax(o[k], max, i, j, k, l))
+		  if(max > threshold && Detector::isLocalMax(o[k], max, i, j, k, l))
 		    {
 		      IPoint maxPoint;
 		      maxPoint.y = static_cast<double>(i);
 		      maxPoint.x = static_cast<double>(j);
 		      maxPoint.s = o[k].layer[l].scale;
+		      cout << " uuugh " << endl;
 		      //cout << maxPoint.x << " " << maxPoint.y << " " << maxPoint.s << endl;
-		      //IPoint interpolated = interpolateMax(o[k], maxPoint, i, j, k, l);
+		      IPoint interpolated = interpolateMax(o[k], maxPoint, i, j, k, l);
 		      //cout << interpolated.x << " " << interpolated.y << " " << interpolated.s << endl;
-		      //result.push_back(interpolated);
-		      result.push_back(maxPoint);
+		      result.push_back(interpolated);
+		      //result.push_back(maxPoint);
 		    }
 		}
 	    }
 	}
     }
   
+  cout << "done " << endl;
+
   // IplImage *grayImg2 = cvCreateImage(cvSize(W,H),IPL_DEPTH_8U,1);
   // int step = grayImg2->widthStep;
   // uchar* data2 = (uchar*)grayImg2->imageData;
@@ -674,7 +813,7 @@ int main()
 {
   string testDir = "/home/martin/workspace/train/vehicles_proc/";
   vector<P> points;
-  ImageUtils::readImg(testDir,942,points);
+  ImageUtils::readImg(testDir,103,points);
 
   string oh = "hh.jpg";
   int height = points[0].h;
@@ -700,24 +839,9 @@ int main()
   cvShowImage("hello",noCar);
 
 
-
-
-
-  vector<GS> test;
-  for(int i=0;i<10;i++)
-    for(int j=0;j<10;j++)
-      {
-	GS gs;
-	gs.row = i;
-	gs.col = j;
-	gs.intensity = 1;
-	test.push_back(gs);
-      }
-
-
-  IplImage *grayImg = cvCreateImage(cvSize(width,height),IPL_DEPTH_8U,1);
-  step = grayImg->widthStep;
-  uchar* data2 = (uchar*)grayImg->imageData;
+  IplImage *image = cvCreateImage(cvSize(width,height),IPL_DEPTH_8U,1);
+  step = image->widthStep;
+  uchar* data2 = (uchar*)image->imageData;
   vector<GS> gray = ImageUtils::grayScaleIt(points);
 
   for(int i=0;i<height;i++) 
@@ -726,27 +850,73 @@ int main()
 	  data2[i*step+j]=gray[j*height+i].intensity;
 	}
 
-  double threshold = 150;
-  Detector d;
-  vector<IPoint> ipoints = d.getFeaturePatches(gray, points[0].w, points[0].h, threshold);
 
+  vector<vector<long> > integral;
+  vector<vector<int> > gray_intensities;
+  
+  //cout << height << " " << width << endl;
+
+  for(unsigned int i=0;i<height;i++)
+    {
+      vector<int> v;
+      vector<long> i;
+      for(int j=0;j<width;j++)
+	{
+	  v.push_back(0);
+	  i.push_back(0L);
+	}
+      gray_intensities.push_back(v);
+      integral.push_back(i);
+    }
+
+  for(unsigned int i=0;i<gray.size();i++)
+    {
+      gray_intensities[gray[i].row][gray[i].col] = gray[i].intensity;
+    }
+
+   for(unsigned int i=0;i<height;i++)
+    for(unsigned int j=0;j<width;j++)
+      {
+	if(i == 0 && j == 0)
+	  integral[i][j] = gray_intensities[i][j];
+	else if(i == 0)
+	  integral[i][j] = gray_intensities[i][j] + integral[i][j-1];
+	else if(j == 0)
+	  integral[i][j] = gray_intensities[i][j] + integral[i-1][j];
+	else
+	  {
+	    integral[i][j] = gray_intensities[i][j];
+	    integral[i][j] += integral[i-1][j];
+	    integral[i][j] += integral[i][j-1];
+	    integral[i][j] -= integral[i-1][j-1];
+	  }
+      }
+
+  double threshold = 900;
+  Detector d;
+  vector<IPoint> ipoints = d.getFeaturePatches(integral, width, height, threshold);
+  cout << "here " << ipoints.size() << endl;
   for(int i=0;i<ipoints.size();i++)
     {
 
-            cout << ipoints[i].x << " " << ipoints[i].y << " " << ipoints[i].s << endl;
+            //       cout << ipoints[i].x << " " << ipoints[i].y << " " << ipoints[i].s << endl;
+	    vector<double> desc = Descriptor::getDescriptor(ipoints[i], integral);
+	      // for(int j=0;j<desc.size();j++)
+	      //    cout << desc[j] << " ";
+	      // cout << endl;
     }
 
-  drawPoints(grayImg, ipoints);
+  drawPoints(image, ipoints);
 
 
-  cvShowImage("hello2", grayImg);
+  cvShowImage("hello2", image);
   cvWaitKey(0);
 
   
 
   cvReleaseImage(&noCar);
   cvDestroyWindow("hello");
-  cvReleaseImage(&grayImg);
+  cvReleaseImage(&image);
   cvDestroyWindow("hello2");  
 }
 
