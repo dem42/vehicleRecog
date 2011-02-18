@@ -4,8 +4,8 @@
 #include <fstream>
 #include <vector>
 #include <cmath>
-#include "cv.h"
-#include "highgui.h"
+// #include "cv.h"
+// #include "highgui.h"
 #include <ctime>
 #include <cstdlib>
 #include <limits>
@@ -56,8 +56,6 @@ public:
   static void init_arr(const string& dir, vector<vector<P> >& arr, int num);
   static void readImg(const string& dir, int imgNum, vector<P>& img);
   static vector<GS> grayScaleIt(const vector<P>& color);
-  static void grayScaleTriplet(const vector<P>& color, vector<GS>& rg, vector<GS>& gg, vector<GS>& bg);
-  static vector<GS> grayScaleItGamma(const vector<P>& color);
 };
 
 class MathUtils
@@ -119,14 +117,12 @@ public:
      int imgHeight = integralImage.size() - 1;    
      int imgWidth = integralImage[0].size() - 1;
      
-     int l_x = max(0, x - width/2 - 1);
-     int r_x = min(imgWidth, x + width/2);
-     int u_y = max(0, y - width/2 - 1);
-     int b_y = min(imgHeight, y + width/2);
+     int l_x = min(imgWidth, max(0, x - width/2 - 1));
+     int r_x = max(0, min(imgWidth, x + width/2));
+     int u_y = min(imgHeight, max(0, y - width/2 - 1));
+     int b_y = max(0, min(imgHeight, y + width/2));
      int m_y = min(max(0, y-1), imgHeight);
      
-     //cout << l_x << " " << r_x << " " << u_y << " " << b_y << " " << m_y << " " << imgHeight << " " << imgWidth << endl;
-
      long sum = 0;
      sum += integralImage[b_y][r_x] + integralImage[u_y][r_x] + 2*integralImage[m_y][l_x];
      sum += -2*integralImage[m_y][r_x] - integralImage[b_y][l_x] - integralImage[u_y][l_x];
@@ -138,15 +134,14 @@ public:
   {
      int imgHeight = integralImage.size() - 1;
      int imgWidth = integralImage[0].size() - 1;
+
+     int l_x = min(imgWidth, max(0, x - width/2 - 1));
+     int r_x = max(0, min(imgWidth, x + width/2));
+     int u_y = min(imgHeight, max(0, y - width/2 - 1));
+     int b_y = max(0, min(imgHeight, y + width/2));
      
-     int l_x = max(0, x - width/2 - 1);
-     int r_x = min(imgWidth, x + width/2);
-     int u_y = max(0, y - width/2 - 1);
-     int b_y = min(imgHeight, y + width/2);
      int m_x = min(max(0, x-1),imgWidth);
    
-     //cout << l_x << " " << r_x << " " << u_y << " " << b_y << " " << m_x << " " << imgHeight << " " << imgWidth << endl;
-     
      long sum = 0;
      sum += integralImage[b_y][r_x] - integralImage[u_y][r_x] - 2*integralImage[b_y][m_x];
      sum += 2*integralImage[u_y][m_x] + integralImage[b_y][l_x] - integralImage[u_y][l_x];
@@ -163,36 +158,41 @@ vector<double> Descriptor::getDescriptor(const IPoint& p, const vector<vector<lo
   double iHeight = static_cast<double>(integralImage.size()) - 1;
   double iWidth = static_cast<double>(integralImage[0].size()) - 1;
 
-  int window_lx = static_cast<int>( floor(max(x_c - 20*s, 0.0)) );
-  int window_rx = static_cast<int>( ceil(min(x_c + 20*s, iWidth)) );
-  int window_uy = static_cast<int>( floor(max(y_c - 20*s, 0.0)) );
-  int window_by = static_cast<int>( ceil(min(y_c + 20*s, iHeight)) );
+  int window_lx = static_cast<int>( floor(max(x_c - 10*s, 0.0)) );
+//  int window_rx = static_cast<int>( ceil(min(x_c + 10*s, iWidth)) );
+  int window_uy = static_cast<int>( floor(max(y_c - 10*s, 0.0)) );
+//int window_by = static_cast<int>( ceil(min(y_c + 10*s, iHeight)) );
 
-  int step = static_cast<int>( round(5*s) );
+int step = static_cast<int>( round(5.0*s) );
+  int substep = static_cast<int>( floor(s) );
   //25 in each subregion
 
   vector<double> descriptor;
+int count =0;
 
-  //cout << " hmm " <<  window_uy << " " << window_by << " " << window_lx << " " << window_rx << endl;
-  
-  for(int i=window_uy; i < window_by; i+=step)
+
+  for(int i=0; i < 4; i++)
     {
-      for(int j=window_lx; j < window_rx; j+=step)
+      for(int j=0; j < 4; j++)
 	{
 	  double vector_dx = 0;
 	  double vector_dy = 0;
 	  double vector_abs_dx = 0;
 	  double vector_abs_dy = 0;
 	  bool showStuff = false;
-
-	  for(int start_y = i; start_y < i + s; start_y+=s)
+	  count++;
+	  for(int k = 0; k<5; k++)
 	    {
-	      for(int start_x = j; start_x < j + s; start_x+=s)
+	      for(int l = 0; l<5; l++)
 		{
+		  int start_x = window_lx+j*step + l*substep;
+		  int start_y = window_uy+i*step + k*substep;
+
 		  //3.3 sigma gaussian centered at Ipoint
 		  double blur = Descriptor::gaussian(start_x - x_c, 
 						     start_y - y_c,
 						     3.3*s);
+
 		  
 		  double waveResp = blur * Descriptor::haarX(start_x, 
 							    start_y,
@@ -235,64 +235,142 @@ vector<double> Descriptor::getDescriptor(const IPoint& p, const vector<vector<lo
 class BoW
 {
 public:
-  static void kmeans(int K, const vector<vector<double> >&data, vector<vector<double> >kcenters);
+  void crossValid(const vector<vector<double> >&kcenters, const string& back_file, 
+		  const string& veh_file)
+  {
+
+  }
+
+  static void kmeans(int K, const vector<vector<double> >&data,
+		     vector<vector<double> >&kcenters, vector<int>& kcounts);
   static double euclidDist(const vector<double>& v1, const vector<double>& v2)
   {
     double sum = 0;
+    
     for(int i=0;i<v1.size();i++)
       {
-	sum += v1[i]*v1[i] - v2[i]*v2[i];
+	sum += (v1[i] - v2[i])*(v1[i] - v2[i]);
       }
     
     return sqrt(sum);
   }
+
+  static vector<int> getCodebook(const vector<vector<double> >&data, const vector<vector<double> >& kcenters)
+  {
+    vector<int> codebook(data.size());
+    
+    for(int k=0;k<data.size();k++)
+      {
+	double minDist = numeric_limits<double>::max();
+	for(int i=0;i<kcenters.size();i++)
+	  {                
+	    double dist = BoW::euclidDist(data[k], kcenters[i]);
+            
+	    if(dist < minDist)
+	      {
+		codebook[k] = i;               
+		minDist = dist;
+	      }
+	      
+	  }
+      }
+
+    vector<int> histogram(kcenters.size());
+    for(int i=0;i<codebook.size();i++)
+      {                
+	histogram[codebook[i]]++;
+      }
+    return histogram;
+  }
 };
 
-void BoW::kmeans(int K, const vector<vector<double> >&data, vector<vector<double> >kcenters)
+void BoW::kmeans(int K, const vector<vector<double> >&data, vector<vector<double> >&kcenters,
+		 vector<int>& kcounts)
 {
+  vector<vector<double> >old_kcenters(kcenters.size());
   srand(time(NULL));
-
+  
   for(int i=0; i<kcenters.size(); i++)
     {
-        for(int j=0; j<kcenters[i].size(); j++)
-	  {
-	    int random = rand() % 10000;
-	    kcenters[i][j] = static_cast<double>(random) / 10000.0;
-	  }
+      int random = rand() % data.size();          
+      for(int j=0; j<kcenters[i].size(); j++)
+        {
+	  kcenters[i][j] = data[random][j];
+	  old_kcenters[i].push_back(kcenters[i][j]);
+	}
+      kcounts[i] = 0;
     }
+  
+  // for(int i=0;i<K;i++)
+  //   {
+  //     for(int j=0;j<kcenters[i].size();j++)
+  // 	cout << kcenters[i][j] << " ";
+  //   }
 
   int MAXITER = 10000;
-  double maxMove = numeric_limits<double>::min();
+  int iter = 0;
+  
   int codebook[data.size()];
   for(int i=0;i<data.size();i++)
     codebook[i] = 0;
-
-  //do
-  //{
-
+  
+  double maxMove = 0;
+  
+  do
+    {
+      iter++;
+      maxMove = numeric_limits<double>::min();
+      
       for(int k=0;k<data.size();k++)
 	{
-	  double maxDist = numeric_limits<double>::min();
+	  double minDist = numeric_limits<double>::max();
 	  for(int i=0;i<kcenters.size();i++)
-	    {
-	      double dist = BoW::euclidDist(data[k], kcenters[k]);
-	      if(dist > maxDist)
+	    {                
+	      double dist = BoW::euclidDist(data[k], kcenters[i]);
+            
+	      if(dist < minDist)
 		{
-		  codebook[k] = i;
-		  maxDist = dist;		  
+		  codebook[k] = i;               
+		  minDist = dist;
 		}
+	      
 	    }
 	}
-      // for(int i=0;i<data.size();i++)
-      // 	{
-      // 	  for(int j=0; j
-      // 	  kcenters[codebook[i]]
-      // 	}
-
-	  
-
       
-
+      for(int i=0;i<kcenters.size();i++)
+	{
+          for(int j=0; j<kcenters[i].size();j++)
+	    {
+              old_kcenters[i][j] = kcenters[i][j];
+              kcenters[i][j] = 0;
+              kcounts[i] = 0;
+	    }
+	}
+      
+      for(int i=0;i<data.size();i++)
+	{
+          for(int j=0; j<data[i].size();j++)
+	    {
+	      kcenters[codebook[i]][j] += data[i][j];
+	    }
+          kcounts[codebook[i]]++;
+	}
+      
+      for(int i=0;i<kcenters.size();i++)
+	{
+	  if(kcounts[i] != 0)
+	    {     
+	      for(int j=0;j<kcenters[i].size();j++)
+		kcenters[i][j] /= static_cast<double>(kcounts[i]);
+	    }
+	  
+	  double dist = BoW::euclidDist(kcenters[i], old_kcenters[i]);
+	  if(dist > maxMove)
+	    {
+              maxMove = dist;
+	    }
+	}      
+    } while(iter < MAXITER && maxMove > 0.001);
 }
 
 inline double MathUtils::det3x3(const vector<vector<double> >& mat)
@@ -359,7 +437,7 @@ inline long Detector::calcDxx(const vector<vector<long> >& img, int i, int j, in
   //dxx = (i4 - i3 - i2 + i1) - 2*(i6 - i4 - i5 + i2) + (i8 - i6 - i7 + i5);
   long sum = 0;
 
-  if(j > 4 + 3*sx)
+  if(j - 5 - 3*sx > 0)
     {
       //i1
       sum += img[i-3-sy][j-5-3*sx];
@@ -391,7 +469,7 @@ inline long Detector::calcDyy(const vector<vector<long> >& img, int i, int j, in
   //dyy = (i4 - i3 - i2 + i1) - 2*(i6 - i5 - i4 + i3) + (i8 - i7 - i6 + i5);
   long sum = 0;
 
-  if(i > 4 + 3*sy)
+  if(i - 5 - 3*sy > 0)
     {
       //i1
       sum += img[i-5-3*sy][j-3-sx];
@@ -504,49 +582,46 @@ IPoint Detector::interpolateMax(const Octave& o, const IPoint& max, unsigned int
   hessian[2][1] = dys;
   hessian[2][2] = dss;
 
-  cout << dxx << " " << dxy << " " << dxs << endl;
-  cout << dxy << " " << dyy << " " << dys << endl;
-  cout << dxs << " " << dys << " " << dss << endl;
-
   vector<vector<double> >iHess;
   iHess.push_back(vector<double>(3));
   iHess.push_back(vector<double>(3));
   iHess.push_back(vector<double>(3));
   MathUtils::inverse3x3(hessian, iHess);
 
-  cout << iHess[0][0] << " " << iHess[0][1] << " " << iHess[0][2] << endl;
-  cout << iHess[1][0] << " " << iHess[1][1] << " " << iHess[1][2] << endl;
-  cout << iHess[2][0] << " " << iHess[2][1] << " " << iHess[2][2] << endl;
-
-  
   //due to taylor expansion these are displacements to the optimum
   double xopt = -1*(iHess[0][0]*dx + iHess[0][1]*dy + iHess[0][2]*ds);
   double yopt = -1*(iHess[1][0]*dx + iHess[1][1]*dy + iHess[1][2]*ds);
   double sopt = -1*(iHess[2][0]*dx + iHess[2][1]*dy + iHess[2][2]*ds);
-  cout << xopt << " " << yopt << " " << sopt << endl;
-  //if(fabs(xopt) < 0.5 && fabs(yopt) < 0.5 && fabs(sopt) < 0.5)
+
   IPoint interpolated;
-  interpolated.x = max.x + xopt;
-  interpolated.y = max.y + yopt;
-  interpolated.s = max.s + sopt;
+  interpolated.x = max.x;
+  interpolated.y = max.y;
+  interpolated.s = max.s;
+  if(fabs(xopt) < 0.5 && fabs(yopt) < 0.5 && fabs(sopt) < 0.5)
+    {
+  
+      IPoint interpolated;
+      interpolated.x = xopt;
+      interpolated.y = yopt;
+      interpolated.s = sopt;
+    }
   return interpolated;
 }
 
 bool Detector::isLocalMax(const Octave& o, int max, unsigned int i, 
 			  unsigned int j, unsigned int k, unsigned int l)
 {
-  cout << " hoho " << endl;
-
   if(max == 0)
     return false;
-  for(unsigned int m=-1;m<=1;m++)
+  for(int m=-1;m<=1;m++)
     {
-      for(unsigned int n=-1;n<=1;n++)
+      for(int n=-1;n<=1;n++)
 	{
-	  for(unsigned int p=-1;p<=1;p++)
+	  for(int p=-1;p<=1;p++)
 	    {
 	      double val = o.layer[l+m].responseMap[i+n][j+p];
-	      if(val > max)
+
+	      if(val >= max && !(m == 0 && n==0 && p==0))
 		{				  
 		  return false;
 		}
@@ -563,54 +638,39 @@ vector<IPoint> Detector::getFeaturePatches(const vector<vector<long> >& integral
   for(int i=0;i<4;i++)
     Detector::initOctave(o[i], W, H);
   double area_squared = 0.;
-
+  
   int filter_sizes[4][4] = {{9,15,21,27},{15,27,39,51},{27,51,75,99},{51,99,147,195}};
-
-  cout << "building response map" << endl;
-
-  for(unsigned int i=0;i<H;i++)
+  
+  for(unsigned int k=0;k<4;k++)
     {
-      for(unsigned int j=0;j<W;j++)
+      int border = (filter_sizes[k][3] / 2) + 1;
+      for(unsigned int l=0;l<4;l++)
 	{
-	  for(unsigned int k=0;k<4;k++)
+	  for(int i=border;i<H-border;i++)
 	    {
-	      for(unsigned int l=0;l<4;l++)
+	      for(int j=border;j<W-border;j++)
 		{
 		  int filter_size = filter_sizes[k][l];
-		  int half = filter_size / 2;
-		  if(i >= half && i < (H - half) && j >=half && j < (W - half))
-		    {
-		      area_squared = filter_size*filter_size*filter_size*filter_size;
-		      int sx = (filter_size / 3) - 3;
-		      int sy = sx / 2;;
-		      
-		      double dyy = static_cast<double>(Detector::calcDyy(integral, i, j, sx, sy));
-		      double dxy = static_cast<double>(Detector::calcDxy(integral, i, j, sx, sx));
-		      double dxx = static_cast<double>(Detector::calcDxx(integral, i, j, sy, sx));
-		      //filtered[i][j] = dyy;
-
-		      o[k].layer[l].scale = (1.2 / 9.0) * static_cast<double>(filter_size);
-		      o[k].layer[l].filterSize = filter_size;
-
-		      double resp = (dxx*dyy - 0.81*dxy*dxy) / (area_squared);
-		      
-		      // if(resp > threshold)
-		      // 	{
-		      // 	  //cout << threshold << " " << resp << endl;
-		      // 	  //cout << i  << " " << j << " " << o[k].layer[l].scale << endl;
-		      // 	  o[k].layer[l].responseMap[i][j] = resp;
-		      // 	}
-		      // else
-		      // 	{
-			  o[k].layer[l].responseMap[i][j] = resp;
-			  //	}
-		    }
+		  
+		  area_squared = filter_size*filter_size*filter_size*filter_size;
+		  int sx = (filter_size / 3) - 3;
+		  int sy = sx / 2;
+		  
+		  double dyy = static_cast<double>(Detector::calcDyy(integral, i, j, sx, sy));
+		  double dxy = static_cast<double>(Detector::calcDxy(integral, i, j, sx, sx));
+		  double dxx = static_cast<double>(Detector::calcDxx(integral, i, j, sy, sx));
+		  //filtered[i][j] = dyy;
+		  
+		  o[k].layer[l].scale = (1.2 / 9.0) * static_cast<double>(filter_size);
+		  o[k].layer[l].filterSize = filter_size;
+		  
+		  double resp = (dxx*dyy - 0.81*dxy*dxy) / (area_squared);
+		  
+		  o[k].layer[l].responseMap[i][j] = resp;
 		}
 	    }
 	}
-
     }
-
   // for(unsigned int k=0;k<4;k++)
   //   {
   //     for(unsigned int l=0;l<3;l++)
@@ -629,10 +689,7 @@ vector<IPoint> Detector::getFeaturePatches(const vector<vector<long> >& integral
   //   }
 
 
-  cout << "suppresing and interpolating" << endl;
-
   vector<IPoint> result;
-
   
   //non-maximum suppression
   for(unsigned int i=1;i<H-1;i++)
@@ -651,10 +708,9 @@ vector<IPoint> Detector::getFeaturePatches(const vector<vector<long> >& integral
 		      maxPoint.y = static_cast<double>(i);
 		      maxPoint.x = static_cast<double>(j);
 		      maxPoint.s = o[k].layer[l].scale;
-		      cout << " uuugh " << endl;
-		      //cout << maxPoint.x << " " << maxPoint.y << " " << maxPoint.s << endl;
+
 		      IPoint interpolated = interpolateMax(o[k], maxPoint, i, j, k, l);
-		      //cout << interpolated.x << " " << interpolated.y << " " << interpolated.s << endl;
+
 		      result.push_back(interpolated);
 		      //result.push_back(maxPoint);
 		    }
@@ -663,8 +719,6 @@ vector<IPoint> Detector::getFeaturePatches(const vector<vector<long> >& integral
 	}
     }
   
-  cout << "done " << endl;
-
   // IplImage *grayImg2 = cvCreateImage(cvSize(W,H),IPL_DEPTH_8U,1);
   // int step = grayImg2->widthStep;
   // uchar* data2 = (uchar*)grayImg2->imageData;
@@ -688,25 +742,9 @@ double VehicleRecognition::classifyImage(vector<int> image)
 	
 void VehicleRecognition::train()
 {
-
+  
 }
 
-void ImageUtils::grayScaleTriplet(const vector<P>& color, vector<GS>& rg, vector<GS>& gg, vector<GS>& bg)
-{
-  for(int i=0;i<color.size();i++)
-    {
-      GS gs;
-      gs.row = color[i].row;
-      gs.col = color[i].col;
-      
-      gs.intensity = color[i].r;
-      rg.push_back(gs);
-      gs.intensity = color[i].g;
-      gg.push_back(gs);
-      gs.intensity = color[i].b;
-      bg.push_back(gs);
-    }
-}
 
 vector<GS> ImageUtils::grayScaleIt(const vector<P>& color)
 {
@@ -722,32 +760,6 @@ vector<GS> ImageUtils::grayScaleIt(const vector<P>& color)
       //assume input is already gamma corrected
       gs.intensity = 0.30*color[i].r + 0.59*color[i].g + 0.11*color[i].b;
 
-      grayScale.push_back(gs);
-    }
-
-  return grayScale;
-}
-
-vector<GS> ImageUtils::grayScaleItGamma(const vector<P>& color)
-{
-  vector<GS> grayScale;
-  grayScale.reserve(color.size());
-
-  for(int i=0;i<color.size();i++)
-    {
-      GS gs;
-      gs.row = color[i].row;
-      gs.col = color[i].col;
-      
-      //gamma decode
-      int re = pow(color[i].r, 1.0/2.2);
-      int rg = pow(color[i].g, 1.0/2.2);
-      int rb = pow(color[i].b, 1.0/2.2);
-
-      gs.intensity = 0.30*re + 0.59*rg + 0.11*rb;
-
-      //gamma encode
-      gs.intensity = pow(gs.intensity, 2.2);
       grayScale.push_back(gs);
     }
 
@@ -792,70 +804,74 @@ void ImageUtils::readImg(const string& dir, int imgNum, vector<P>& destImg)
     }
 }
 
-void drawPoints(IplImage *img, vector<IPoint> &ipts)
+// void drawPoints(IplImage *img, vector<IPoint> &ipts)
+// {
+//   double s, o;
+//   int r1, c1;
+
+//   for(unsigned int i = 0; i < ipts.size(); i++) 
+//   {
+//     s = 3;
+//     r1 = (int)floor(ipts[i].y + 0.5);
+//     c1 = (int)floor(ipts[i].x + 0.5);
+
+//     cvCircle(img, cvPoint(c1,r1), 3, cvScalar(123,12,14), -1);
+//     cvCircle(img, cvPoint(c1,r1), 4, cvScalar(0,111,0), 2);
+//   }
+// }
+
+
+int main(int argc, char** argv)
 {
-  double s, o;
-  int r1, c1;
+  stringstream ss("", stringstream::in | stringstream::out);
 
-  for(unsigned int i = 0; i < ipts.size(); i++) 
-  {
-    s = 3;
-    r1 = (int)floor(ipts[i].y + 0.5);
-    c1 = (int)floor(ipts[i].x + 0.5);
+  for(int i=1;i < argc;i++)
+    ss << argv[i] << " ";
 
-    cvCircle(img, cvPoint(c1,r1), 3, cvScalar(123,12,14), -1);
-    cvCircle(img, cvPoint(c1,r1), 4, cvScalar(0,111,0), 2);
-  }
-}
-
-
-int main()
-{
   string testDir = "/home/martin/workspace/train/vehicles_proc/";
-  vector<P> points;
-  ImageUtils::readImg(testDir,103,points);
 
-  string oh = "hh.jpg";
+  int num = 0;
+  double threshold;
+  if(argc == 4)
+    {
+      ss >> num;
+      ss >> threshold;
+      ss >> testDir;
+    }
+
+  
+  vector<P> points;
+  ImageUtils::readImg(testDir,num,points);
+
   int height = points[0].h;
   int width = points[0].w;
   int channels = 3;
     
-  IplImage* img = cvLoadImage(oh.c_str());
+  // IplImage* img = cvLoadImage(oh.c_str());
   
-  IplImage *noCar = cvCreateImage(cvSize(width,height),IPL_DEPTH_8U,channels);
+  // IplImage *noCar = cvCreateImage(cvSize(width,height),IPL_DEPTH_8U,channels);
 
-  int step = noCar->widthStep;
-  uchar* data = (uchar*)noCar->imageData;
+  // int step = noCar->widthStep;
+  // uchar* data = (uchar*)noCar->imageData;
 
-  for(int i=0;i<height;i++) 
-    for(int j=0;j<width;j++) 
-	{
-	  data[i*step+j*channels]=points[j*height+i].b;
-	  data[i*step+j*channels+1]=points[j*height+i].g;
-	  data[i*step+j*channels+2]=points[j*height+i].r;
-	}
+  // for(int i=0;i<height;i++) 
+  //   for(int j=0;j<width;j++) 
+  // 	{
+  // 	  data[i*step+j*channels]=points[j*height+i].b;
+  // 	  data[i*step+j*channels+1]=points[j*height+i].g;
+  // 	  data[i*step+j*channels+2]=points[j*height+i].r;
+  // 	}
 
   
-  cvShowImage("hello",noCar);
+  //cvShowImage("hello",noCar);
 
-
-  IplImage *image = cvCreateImage(cvSize(width,height),IPL_DEPTH_8U,1);
-  step = image->widthStep;
-  uchar* data2 = (uchar*)image->imageData;
   vector<GS> gray = ImageUtils::grayScaleIt(points);
 
-  for(int i=0;i<height;i++) 
-    for(int j=0;j<width;j++) 
-	{
-	  data2[i*step+j]=gray[j*height+i].intensity;
-	}
 
 
   vector<vector<long> > integral;
   vector<vector<int> > gray_intensities;
   
-  //cout << height << " " << width << endl;
-
   for(unsigned int i=0;i<height;i++)
     {
       vector<int> v;
@@ -892,31 +908,67 @@ int main()
 	  }
       }
 
-  double threshold = 900;
   Detector d;
   vector<IPoint> ipoints = d.getFeaturePatches(integral, width, height, threshold);
-  cout << "here " << ipoints.size() << endl;
+  //cout << "here " << ipoints.size() << endl;
+  vector<vector<double> >descs;
   for(int i=0;i<ipoints.size();i++)
     {
 
-            //       cout << ipoints[i].x << " " << ipoints[i].y << " " << ipoints[i].s << endl;
-	    vector<double> desc = Descriptor::getDescriptor(ipoints[i], integral);
-	      // for(int j=0;j<desc.size();j++)
-	      //    cout << desc[j] << " ";
-	      // cout << endl;
+      //cout << ipoints[i].x << " " << ipoints[i].y << " " << ipoints[i].s << endl;
+      vector<double> desc = Descriptor::getDescriptor(ipoints[i], integral);
+      descs.push_back(desc);
+
+
+      // for(int j=0;j<desc.size();j++)
+      // 	cout << desc[j] << " ";
+      // cout << endl;
     }
 
-  drawPoints(image, ipoints);
+  //transfrom into codebook
+  vector<vector<double> >kcenters;
+  int centers = 64;
+  int num_k = 40;
+  fstream kc("kcenters.txt", fstream::in);
+
+   for(int i=0;i<num_k;i++)
+     {
+       vector<double> kcv(centers);
+       for(int j=0;j<centers;j++)
+	 kc >> kcv[j];
+       kcenters.push_back(kcv);
+     }
+
+   vector<int> kcounts = BoW::getCodebook(descs, kcenters);
+
+   for(int i=0;i<num_k;i++)
+     cout << i << " " << kcounts[i] << " ";
+   cout << endl;
 
 
-  cvShowImage("hello2", image);
-  cvWaitKey(0);
+
+  //cout << ipoints.size() << endl;
+  //drawPoints(image, ipoints);
+
+
+  // IplImage *image = cvCreateImage(cvSize(width,height),IPL_DEPTH_8U,1);
+  // int step = image->widthStep;
+  // uchar* data2 = (uchar*)image->imageData;
+
+
+  // for(int i=0;i<height;i++) 
+  //   for(int j=0;j<width;j++) 
+  // 	{
+  // 	  data2[i*step+j]=gray[j*height+i].intensity;
+  // 	}
+  // cvShowImage("hello2", image);
+  // cvWaitKey(0);
 
   
 
-  cvReleaseImage(&noCar);
-  cvDestroyWindow("hello");
-  cvReleaseImage(&image);
-  cvDestroyWindow("hello2");  
+  // cvReleaseImage(&noCar);
+  // cvDestroyWindow("hello");
+  // cvReleaseImage(&image);
+  // cvDestroyWindow("hello2");  
 }
 
